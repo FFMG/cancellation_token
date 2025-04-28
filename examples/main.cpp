@@ -3,6 +3,8 @@
 #include <thread>
 #include "../src/cancellation_token.h"
 
+using namespace myoddweb;
+
 void do_something(cancellation_token token)
 {
   token.register_callback([]{

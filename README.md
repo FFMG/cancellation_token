@@ -14,6 +14,8 @@ Very simple function to create a cancellation token similar to the .NET implemen
 #include <thread>
 #include "../src/cancellation_token.h"
 
+using namespace myoddweb;
+
 void do_something(cancellation_token token)
 {
   std::cout << "do_something is starting ... " << std::endl;
@@ -51,6 +53,8 @@ int main()
 You can gerister for callback when a cancellation is called.
 
 ```c++
+using namespace myoddweb;
+
 int main()
 {
   // the source
