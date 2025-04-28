@@ -46,6 +46,32 @@ int main()
 }
 ```
 
+### Callback
+
+You can gerister for callback when a cancellation is called.
+
+```c++
+int main()
+{
+  // the source
+  auto cs = cancellation_token_source();
+
+  auto id = cs.register_callback([]{
+    std::cout << "Callback main called!" << std::endl;
+  });
+
+  // do stuff
+
+  // we don't want to be called anymore
+  cs.unregister_callback(id);
+
+  // cancel 
+  cs.cancel();
+
+  ...
+}
+```
+
 ### Compiling the example
 
 Using g++ just call ... 
