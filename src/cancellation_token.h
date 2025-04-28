@@ -3,6 +3,9 @@
 // Florent Guelfucci licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information.
 #include <exception>
+#include <functional>
+#include <map>
+#include <mutex>
 
 class operation_canceled_exception : public std::exception
 {
@@ -23,11 +26,14 @@ public:
   bool can_be_cancelled() const;
   void throw_if_cancellation_requested();
 
+  unsigned register_callback(std::function<void()> callback);
+  bool unregister_callback(unsigned id);
+
 protected:
-  cancellation_token(const cancellation_token_source* source);
+  cancellation_token(cancellation_token_source* source);
 
 private:
-  const cancellation_token_source* _source;
+  cancellation_token_source* _source;
 
   void throw_operation_canceled_exception();
 };
@@ -35,31 +41,20 @@ private:
 class cancellation_token_source
 {
 public:
-  cancellation_token_source() : 
-    _state(state::not_cancelled_sate)
-  {
-  }
+  cancellation_token_source();
   ~cancellation_token_source()  = default;
 
   cancellation_token_source(const cancellation_token_source&) = delete;
   cancellation_token_source& operator=(const cancellation_token_source&) = delete;
 
-  bool is_cancellation_requested() const
-  {
-    return _state != state::not_cancelled_sate;
-  }
+  bool is_cancellation_requested() const;
 
-  cancellation_token token() const
-  {
-    return cancellation_token(this);
-  }
+  cancellation_token token();
 
-  void cancel()
-  {
-    _state = state::notifiy_state;
-    // notify
-    _state = state::notifiy_complete_state;
-  }
+  void cancel();
+
+  unsigned register_callback(std::function<void()> callback);
+  bool unregister_callback(unsigned id);
 
 private:
   enum state : unsigned
@@ -70,8 +65,90 @@ private:
   };
 
   state _state;
+  std::mutex _notify_mutex;
+  std::mutex _callback_mutex;
+  std::map<unsigned, std::function<void()>> _callbacks;
 };
 
+/// cancellation token source implementation
+cancellation_token_source::cancellation_token_source() : 
+  _state(state::not_cancelled_sate)
+{
+}
+
+bool cancellation_token_source::is_cancellation_requested() const
+{
+  return _state != state::not_cancelled_sate;
+}
+
+cancellation_token cancellation_token_source::token()
+{
+  return cancellation_token(this);
+}
+
+void cancellation_token_source::cancel()
+{
+  // make sure only one cancel is called.
+  std::unique_lock<std::mutex> lock_notify(_notify_mutex);
+  if(is_cancellation_requested())
+  {
+    return;
+  }
+  
+  _state = state::notifiy_state;
+
+  // we can now release the lock as the state was set already.
+  lock_notify.unlock();
+
+  // notify
+  std::unique_lock<std::mutex> callback_lock(_callback_mutex);
+  for( auto& callback : _callbacks)
+  {
+    callback.second();
+  }
+  callback_lock.unlock();
+  _state = state::notifiy_complete_state;
+}
+
+unsigned cancellation_token_source::register_callback(std::function<void()> callback)
+{
+  std::unique_lock<std::mutex> lock_notify(_notify_mutex);
+  if(is_cancellation_requested())
+  {
+    return 0;
+  }
+  lock_notify.unlock();
+
+  std::lock_guard<std::mutex> callback_lock(_callback_mutex);
+  auto id = static_cast<unsigned>(_callbacks.size());
+  _callbacks[id] = callback;
+  return id;
+}
+
+bool cancellation_token_source::unregister_callback(unsigned id)
+{
+  std::unique_lock<std::mutex> lock_notify(_notify_mutex);
+  if(is_cancellation_requested())
+  {
+    return false;
+  }
+  lock_notify.unlock();
+
+  std::lock_guard<std::mutex> callback_lock(_callback_mutex);
+  for( auto& callback : _callbacks)
+  {
+    if(callback.first == id)
+    {
+      _callbacks.erase(id);
+      return true;
+    }
+  }
+
+  // we did not find it.
+  return false;
+}
+
+/// cancellation token implementation
 cancellation_token::cancellation_token(const cancellation_token& src) :
     _source(src._source)
 {
@@ -95,10 +172,12 @@ bool cancellation_token::is_cancellation_requested() const
 {
   return _source != nullptr && _source->is_cancellation_requested();
 }
+
 bool cancellation_token::can_be_cancelled() const
 {
   return _source != nullptr;
 }
+
 void cancellation_token::throw_if_cancellation_requested()
 {
   if(is_cancellation_requested())
@@ -107,7 +186,7 @@ void cancellation_token::throw_if_cancellation_requested()
   }
 }
 
-cancellation_token::cancellation_token(const cancellation_token_source* source) : 
+cancellation_token::cancellation_token(cancellation_token_source* source) : 
   _source(source)
 {
 }
@@ -117,3 +196,22 @@ void cancellation_token::throw_operation_canceled_exception()
   throw operation_canceled_exception();
 }
 
+unsigned cancellation_token::register_callback(std::function<void()> callback)
+{
+  //  if we have no source then it will never be called.
+  if(_source == nullptr)
+  {
+    return 0;
+  }
+  return _source->register_callback(callback);
+}
+
+bool cancellation_token::unregister_callback(unsigned id)
+{
+  //  if we have no source then it will never be called.
+  if(_source == nullptr)
+  {
+    return false;
+  }
+  return _source->unregister_callback(id);
+}

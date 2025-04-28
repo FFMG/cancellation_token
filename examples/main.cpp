@@ -5,6 +5,10 @@
 
 void do_something(cancellation_token token)
 {
+  token.register_callback([]{
+    std::cout << "Callback in thread called!" << std::endl;
+  });
+
   std::cout << "do_something is starting ... " << std::endl;
   std::chrono::milliseconds timespan(1000);
   while(!token.is_cancellation_requested())
@@ -20,6 +24,10 @@ int main()
 {
   // the source
   auto cs = cancellation_token_source();
+
+  cs.register_callback([]{
+    std::cout << "Callback main called!" << std::endl;
+  });
 
   // do stuff
   std::thread t1(do_something, cs.token());
