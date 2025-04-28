@@ -46,6 +46,12 @@ int main()
 }
 ```
 
+### Compiling the example
+
+Using g++ just call ... 
+
+`g++ -Wall -Wextra -Werror -O3 ./examples/main.cpp -o main -std=c++20`
+
 # What next?
 
 I want to add notifications at some point.
